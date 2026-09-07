@@ -1,14 +1,17 @@
-Made for night owls with mornings ahead.
+A little nudge to call it a night.
 
 Beddy Butler is a charming menu bar companion that helps you finish the evening and make your way to bed. Set a bedtime window, then carry on. When it is time to wind down, your Butler offers a timely nudge without taking over your screen.
 
-Choose Shy for a polite suggestion, Insistent for firmer encouragement, or Zombie for a chilling forewarning of how you might feel tomorrow. Progressive mode moves naturally between personalities as bedtime approaches.
+Choose Shy for a polite suggestion, Insistent for firmer encouragement, or Zombie for a theatrical undead nudge. Gradually firmer reminders start with your chosen voice and respect your preferred maximum intensity.
 
 YOUR EVENING, BEAUTIFULLY
 
 • Lives quietly in the macOS menu bar
 • Shows the next nudge and tonight's schedule at a glance
-• Lets you hear a sample, snooze, pause, or make a one-night adjustment in seconds
+• Lets you hear a sample, snooze, pause, or make a one-night adjustment
+• Remembers your choice of 10, 20, 30, or 60 minutes for snooze
+• Offers “I’m heading to bed” to finish the current window
+• Previews the next seven days, including overnight routines
 • Saves changes instantly
 
 BUILT AROUND REAL LIFE

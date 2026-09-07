@@ -30,7 +30,7 @@
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 0;
   overflow-x: hidden;
   color: var(--ink);
   background:
@@ -400,4 +400,28 @@ footer > p { text-align:right; }
 }
 @media (prefers-contrast: more) {
   :root { --muted:#d2dbea; --faint:#b3c0d4; --line:rgba(255,255,255,.3); --line-strong:rgba(255,255,255,.5); }
+}
+
+/* Voice samples, aligned with the existing personality cards. */
+.persona-card > p:not(.persona-level) { margin: 0; font-size: 14px; color: var(--muted); }
+.sample-player { margin-top: 22px; min-width: 0; }
+.sample-player audio { width: 100%; }
+.sample-toggle, .sample-retry { padding: 11px 18px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--glass); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+.sample-toggle:hover, .sample-retry:hover { background: rgba(170,216,255,.12); }
+.sample-toggle:focus-visible, .sample-retry:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+.sample-player [hidden] { display: none; }
+.sample-status { display: block; font-size: 12px; color: var(--muted); }
+.sample-status:not(:empty) { margin-top: 8px; }
+@media (min-width: 721px) {
+  .persona-grid { row-gap: 0; }
+  .persona-card { display: grid; grid-row: span 5; grid-template-rows: subgrid; }
+}
+
+/* Articulated avatars preserve the original image as a no-script/GPU fallback. */
+.persona-art .avatar-rig { position:absolute; inset:0; width:100%; height:100%; border:0; opacity:0; pointer-events:none; z-index:1; }
+.persona-art.rig-ready .avatar-rig { opacity:1; }
+.persona-art.rig-ready > img { opacity:0; animation:none; }
+@media (prefers-reduced-motion: reduce) {
+  .persona-art .avatar-rig { display:none; }
+  .persona-art.rig-ready > img { opacity:1; }
 }

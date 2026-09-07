@@ -29,7 +29,9 @@ The current edition preserves the original artwork and all 91 source recordings 
 - One-click voice previews.
 - Nonrepeating shuffled voice playback within each personality.
 - Independent voice volume control.
-- A 30-minute snooze that resumes at the promised time during the bedtime window.
+- A remembered 10, 20, 30, or 60-minute snooze that resumes within the bedtime window, or ends at bedtime.
+- A one-click finish-tonight action that clears the badge without changing the recurring schedule.
+- A seven-day schedule preview and a configurable maximum voice intensity for progressive reminders.
 - Pause for tonight and one-click resume.
 - Modern launch-at-login support through `SMAppService`.
 - A compact native Tonight panel on left click, a full command menu on right click, an adaptive system icon, and accessible SwiftUI preferences.

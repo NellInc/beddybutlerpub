@@ -23,6 +23,25 @@ struct WallClockTime {
 }
 
 enum LocalizedScheduleText {
+    static func dayLabel(
+        _ date: Date, relativeTo reference: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        if calendar.isDate(date, inSameDayAs: reference) { return "Today" }
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d MMM")
+        return formatter.string(from: date)
+    }
+
+    static func dayAndTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM jm")
+        return formatter.string(from: date)
+    }
+
     static func time(
         _ date: Date,
         locale: Locale = .autoupdatingCurrent,
@@ -135,15 +154,17 @@ private struct AnimatedButlerArtwork: View {
     private var artwork: some View {
         switch presentation {
         case .header:
-            Image(personality.assetName)
+            Image("AboutIcon")
                 .resizable()
                 .interpolation(.high)
-                .scaledToFill()
-                .frame(width: 108, height: 96, alignment: .top)
-                .scaleEffect(1.42, anchor: .top)
-                .frame(width: 108, height: 96, alignment: .top)
-                .clipped()
-                .drawingGroup(opaque: false, colorMode: .linear)
+                .scaledToFit()
+                .frame(width: 108, height: 108)
+                .background(BeddyPalette.nightLifted)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(BeddyPalette.lineStrong, lineWidth: 1)
+                }
         case .preview:
             ButlerRiggedView(
                 personality: personality,
@@ -306,9 +327,21 @@ struct PreferencesView: View {
             }
             tonightSection
             scheduleSection
+            upcomingWeekSection
             personalitySection
             if settings.nudgeDelivery.includesSound {
                 behaviorSection
+            }
+            BeddyCard(title: "Everyday controls", symbol: "timer", tint: BeddyPalette.blue) {
+                Picker(
+                    "Snooze duration",
+                    selection: Binding(
+                        get: { settings.snoozeMinutes }, set: { settings.updateSnoozeMinutes($0) }
+                    )
+                ) {
+                    ForEach([10, 20, 30, 60], id: \.self) { Text("\($0) minutes").tag($0) }
+                }
+                .accessibilityIdentifier("behavior.snoozeDuration")
             }
             startupSection
             footer
@@ -325,6 +358,42 @@ struct PreferencesView: View {
             reduceMotion ? nil : .easeInOut(duration: 0.2),
             value: settings.nudgeDelivery
         )
+    }
+
+    private var upcomingWeekSection: some View {
+        BeddyCard(title: "Your next seven days", symbol: "calendar", tint: BeddyPalette.blue) {
+            DisclosureGroup("Preview your schedule") {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(0..<7, id: \.self) { offset in
+                        Text(schedulePreview(offset: offset))
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.padding(.top, 8)
+            }
+            .accessibilityIdentifier("schedule.weekPreview")
+        }
+    }
+
+    private func schedulePreview(offset: Int) -> String {
+        let calendar = Calendar.autoupdatingCurrent
+        guard let day = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: Date())) else {
+            return ""
+        }
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM")
+        let label = formatter.string(from: day)
+        let schedule = settings.weeklySchedule
+        guard let times = schedule.times(for: day, calendar: calendar) else { return "\(label): no reminders" }
+        let name: String
+        switch schedule.selection(for: day, calendar: calendar) {
+        case .oneNightOverride: name = "Tonight’s adjustment"
+        case .alternate: name = settings.alternateScheduleName
+        default: name = settings.primaryScheduleName
+        }
+        let start = WallClockTime.date(for: times.start, relativeTo: day, calendar: calendar)
+        let end = WallClockTime.date(for: times.bed, relativeTo: day, calendar: calendar)
+        let suffix = times.bed <= times.start ? " next day" : ""
+        return "\(label): \(name), \(LocalizedScheduleText.time(start)) to \(LocalizedScheduleText.time(end))\(suffix)"
     }
 
     private var header: some View {
@@ -444,14 +513,14 @@ struct PreferencesView: View {
                         Button {
                             scheduler.snooze()
                         } label: {
-                            Label("Snooze 30 Minutes", systemImage: "timer")
+                            Label("Snooze \(settings.snoozeMinutes) minutes", systemImage: "timer")
                         }
                         .disabled(!scheduler.canSnooze)
-                        .accessibilityLabel("Snooze for 30 minutes")
+                        .accessibilityLabel("Snooze for \(settings.snoozeMinutes) minutes")
                         .accessibilityIdentifier("tonight.snooze")
                         .help(
                             scheduler.canSnooze
-                                ? "Stay quiet for 30 minutes, then nudge immediately"
+                                ? "Stay quiet for \(settings.snoozeMinutes) minutes, or until bedtime if sooner"
                                 : "Snooze becomes available during the bedtime window"
                         )
 
@@ -460,6 +529,7 @@ struct PreferencesView: View {
                         }
                         .accessibilityLabel("Pause nudges for tonight")
                         .accessibilityIdentifier("tonight.pause")
+                        .disabled(!settings.hasActivatedSchedule)
                         .help("Stay quiet until the next bedtime window")
                     }
                 }
@@ -597,14 +667,16 @@ struct PreferencesView: View {
                     Slider(value: frequencyBinding, in: 1...30, step: 1)
                         .accessibilityLabel("Base nudge frequency")
                         .accessibilityValue("\(Int(settings.frequencyMinutes)) minutes")
-                    Text("\(Int(settings.frequencyMinutes)) min")
+                    Text("\(Int(settings.frequencyMinutes))–\(Int(ceil(settings.frequencyMinutes * 1.7))) min")
                         .monospacedDigit()
-                        .frame(width: 52, alignment: .trailing)
+                        .frame(minWidth: 80, alignment: .trailing)
                 }
 
-                Text("Timing varies naturally, up to \(Int(settings.frequencyMinutes * 1.7)) minutes between nudges.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Timing varies naturally, up to \(Int(ceil(settings.frequencyMinutes * 1.7))) minutes between nudges."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
 
                 Divider()
 
@@ -893,8 +965,8 @@ struct PreferencesView: View {
                 if settings.nudgeDelivery.includesVisual {
                     Divider()
 
-                    Toggle("Also show a silent Notification Center alert", isOn: notificationAlertBinding)
-                        .accessibilityLabel("Show silent Notification Center alerts")
+                    Toggle("Also show a silent Notification Centre alert", isOn: notificationAlertBinding)
+                        .accessibilityLabel("Show silent Notification Centre alerts")
                         .accessibilityIdentifier("nudge.notifications")
                         .accessibilityHint("Adds a local visual alert with acknowledge, snooze, and pause actions")
 
@@ -929,16 +1001,31 @@ struct PreferencesView: View {
     private var behaviorSection: some View {
         BeddyCard(title: "Behavior", symbol: "dial.medium", tint: BeddyPalette.warm) {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("Progressive mode", isOn: progressiveBinding)
+                Toggle("Gradually firmer reminders", isOn: progressiveBinding)
                     .fontWeight(.medium)
                     .accessibilityLabel("Progressive mode")
                     .accessibilityIdentifier("behavior.progressive")
                     .accessibilityHint("Escalates the selected personality after every two or three nudges")
                     .disabled(!settings.nudgeDelivery.includesSound)
 
-                Label("Shy  →  Insistent  →  Zombie", systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
+                Picker(
+                    "Firmest reminder",
+                    selection: Binding(
+                        get: { settings.maximumPersonality },
+                        set: { settings.updateMaximumPersonality($0) }
+                    )
+                ) {
+                    ForEach(ButlerPersonality.allCases) { Text($0.title).tag($0) }
+                }
+                .disabled(!settings.progressiveMode)
+                .accessibilityIdentifier("behavior.maximumPersonality")
+
+                Label(
+                    "\(settings.personality.capped(at: settings.maximumPersonality).title)  →  \(settings.maximumPersonality.title)",
+                    systemImage: "chart.line.uptrend.xyaxis"
+                )
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
 
                 Text(
                     settings.nudgeDelivery.includesSound
@@ -1056,6 +1143,7 @@ struct PreferencesView: View {
     }
 
     private var headerStatusTitle: String {
+        if !settings.hasActivatedSchedule { return "Awaiting setup" }
         if scheduler.visualNudgePending {
             return "Nudge waiting"
         }
@@ -1069,6 +1157,7 @@ struct PreferencesView: View {
     }
 
     private var headerStatusSymbol: String {
+        if !settings.hasActivatedSchedule { return "clock" }
         if scheduler.visualNudgePending {
             return "bell.badge.fill"
         }
@@ -1082,6 +1171,7 @@ struct PreferencesView: View {
     }
 
     private var headerStatusTint: Color {
+        if !settings.hasActivatedSchedule { return BeddyPalette.blueBright }
         if scheduler.visualNudgePending {
             return BeddyPalette.warm
         }
@@ -1095,6 +1185,7 @@ struct PreferencesView: View {
     }
 
     private var scheduleHeading: String {
+        if !settings.hasActivatedSchedule { return "Awaiting setup" }
         if scheduler.visualNudgePending {
             return
                 scheduler.pendingVisualNudgeCount == 1
@@ -1102,15 +1193,16 @@ struct PreferencesView: View {
                 : "\(scheduler.pendingVisualNudgeCount) visual bedtime nudges waiting"
         }
         if let mutedUntil = settings.mutedUntil, settings.isMuted() {
-            return "Paused until \(LocalizedScheduleText.time(mutedUntil))"
+            return "Paused until \(LocalizedScheduleText.dayAndTime(mutedUntil))"
         }
         if let nextNudge = scheduler.nextNudge {
-            return "Next nudge at \(LocalizedScheduleText.time(nextNudge))"
+            return "Next nudge at \(LocalizedScheduleText.dayAndTime(nextNudge))"
         }
         return "Waiting for a valid bedtime window"
     }
 
     private var scheduleDetail: String {
+        if !settings.hasActivatedSchedule { return "Press Start Beddy Butler when ready." }
         if scheduler.visualNudgePending {
             return "The menu-bar badge and count remain until you acknowledge them."
         }

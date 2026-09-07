@@ -22,6 +22,21 @@ struct TonightPopoverView: View {
                 panelHeader
                 nextNudgeCard
                 scheduleSummary
+                if scheduler.hasFinishedTonight {
+                    Button("Undo finish") { scheduler.undoFinishTonight() }
+                        .buttonStyle(BeddySecondaryButtonStyle())
+                        .accessibilityIdentifier("popover.undoFinish")
+                        .help("Resume reminders and restore any waiting menu bar badge.")
+                }
+                if scheduler.visualNudgePending {
+                    Text(
+                        settings.isMuted()
+                            ? "Reminders paused until \(settings.mutedUntil.map { LocalizedScheduleText.dayAndTime($0) } ?? "the next window")"
+                            : "Next nudge: \(scheduler.nextNudge.map { LocalizedScheduleText.dayAndTime($0) } ?? "none scheduled")"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(BeddyPalette.muted)
+                }
 
                 if scheduler.visualNudgePending {
                     Button {
@@ -34,13 +49,13 @@ struct TonightPopoverView: View {
                     .accessibilityIdentifier("popover.acknowledge")
                 }
 
-                actionGrid
+                if !scheduler.hasFinishedTonight { actionGrid }
                 progressionFooter
                 utilityFooter
             }
             .padding(24)
         }
-        .frame(width: 390)
+        .frame(width: 420)
         .foregroundStyle(BeddyPalette.ink)
         .tint(BeddyPalette.blue)
         .preferredColorScheme(.dark)
@@ -52,7 +67,7 @@ struct TonightPopoverView: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("TONIGHT")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .tracking(1.6)
                     .foregroundStyle(BeddyPalette.blue)
                 Text(panelTitle)
@@ -69,7 +84,7 @@ struct TonightPopoverView: View {
                     .frame(width: 6, height: 6)
                     .shadow(color: statusColor, radius: 4)
                 Text(statusTitle)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
             }
             .foregroundStyle(statusColor)
             .padding(.horizontal, 10)
@@ -98,7 +113,7 @@ struct TonightPopoverView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(nextCardEyebrow)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .tracking(1.2)
                     .foregroundStyle(Color(red: 145 / 255, green: 170 / 255, blue: 200 / 255))
                 Text(nextCardValue)
@@ -106,8 +121,13 @@ struct TonightPopoverView: View {
                     .monospacedDigit()
                     .tracking(-0.7)
                     .foregroundStyle(BeddyPalette.ink)
+                if let date = nextCardDate {
+                    Text(LocalizedScheduleText.dayLabel(date))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(BeddyPalette.muted)
+                }
                 Text(nextCardDetail)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(BeddyPalette.muted)
             }
 
@@ -146,7 +166,7 @@ struct TonightPopoverView: View {
                 .foregroundStyle(Color(red: 219 / 255, green: 232 / 255, blue: 248 / 255))
                 .monospacedDigit()
         }
-        .font(.system(size: 11))
+        .font(.system(size: 13))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(windowText)")
     }
@@ -167,38 +187,55 @@ struct TonightPopoverView: View {
                 Button {
                     snooze()
                 } label: {
-                    Label("Snooze 30 min", systemImage: "timer")
+                    Label("Snooze \(settings.snoozeMinutes) min", systemImage: "timer")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(BeddySecondaryButtonStyle())
                 .disabled(!scheduler.canSnooze)
+                .help(
+                    "Available during the bedtime window. Snooze stops at bedtime if the chosen duration would run past it."
+                )
                 .accessibilityIdentifier("popover.snooze")
             }
 
-            Button {
-                togglePause()
-            } label: {
-                Label(
-                    settings.isMuted() ? "Resume nudges" : "Pause tonight",
-                    systemImage: settings.isMuted() ? "play.circle.fill" : "pause.circle"
-                )
-                .frame(maxWidth: .infinity)
+            if scheduler.canSnooze && !settings.isMuted() {
+                Button("I’m heading to bed") { scheduler.finishTonight() }
+                    .buttonStyle(BeddyPrimaryButtonStyle(glow: BeddyPalette.blue))
+                    .accessibilityIdentifier("popover.finishTonight")
+                    .help(
+                        "Clear reminders and pause tonight."
+                    )
             }
-            .buttonStyle(BeddySecondaryButtonStyle())
-            .accessibilityIdentifier("popover.pause")
+
+            if !scheduler.hasFinishedTonight {
+                Button {
+                    togglePause()
+                } label: {
+                    Label(
+                        settings.isMuted() ? "Resume nudges" : "Pause tonight",
+                        systemImage: settings.isMuted() ? "play.circle.fill" : "pause.circle"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 8)
+                .foregroundStyle(BeddyPalette.muted)
+                .accessibilityIdentifier("popover.pause")
+                .disabled(!settings.hasActivatedSchedule)
+            }
         }
     }
 
     private var progressionFooter: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(footerModeTitle)
-                .foregroundStyle(BeddyPalette.faint)
+                .foregroundStyle(BeddyPalette.muted)
             Spacer(minLength: 8)
             Text(footerModeDetail)
                 .fontWeight(.semibold)
                 .foregroundStyle(BeddyPalette.blue)
         }
-        .font(.system(size: 10))
+        .font(.system(size: 12))
         .padding(.top, 16)
         .overlay(alignment: .top) {
             Rectangle()
@@ -232,11 +269,13 @@ struct TonightPopoverView: View {
             .accessibilityIdentifier("popover.quit")
         }
         .buttonStyle(.plain)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(BeddyPalette.faint)
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(BeddyPalette.muted)
     }
 
     private var panelTitle: String {
+        if !settings.hasActivatedSchedule { return "Welcome to the night shift" }
+        if scheduler.hasFinishedTonight { return "Good night." }
         if scheduler.visualNudgePending {
             return "A nudge is waiting"
         }
@@ -247,38 +286,49 @@ struct TonightPopoverView: View {
     }
 
     private var statusTitle: String {
+        if !settings.hasActivatedSchedule { return "Awaiting setup" }
+        if scheduler.hasFinishedTonight { return "Finished" }
         if scheduler.visualNudgePending { return "Waiting" }
         if settings.isMuted() { return "Paused" }
         return scheduler.nextNudge == nil ? "At ease" : "On duty"
     }
 
     private var statusColor: Color {
+        if !settings.hasActivatedSchedule { return BeddyPalette.faint }
         if scheduler.visualNudgePending || settings.isMuted() { return BeddyPalette.warm }
         return scheduler.nextNudge == nil ? BeddyPalette.faint : BeddyPalette.success
     }
 
     private var nextCardEyebrow: String {
         if scheduler.visualNudgePending { return "NUDGE WAITING" }
+        if scheduler.hasFinishedTonight { return "NEXT REMINDER" }
         if settings.isMuted() { return "PAUSED UNTIL" }
         return "NEXT NUDGE"
     }
 
+    private var nextCardDate: Date? {
+        if scheduler.visualNudgePending { return nil }
+        if scheduler.hasFinishedTonight { return scheduler.nextNudge }
+        if settings.isMuted() { return settings.mutedUntil }
+        return scheduler.nextNudge
+    }
+
     private var nextCardValue: String {
+        if !settings.hasActivatedSchedule { return "Not started" }
         if scheduler.visualNudgePending {
             return scheduler.pendingVisualNudgeCount == 1
                 ? "Ready"
                 : "\(scheduler.pendingVisualNudgeCount) waiting"
         }
-        if let mutedUntil = settings.mutedUntil, settings.isMuted() {
-            return LocalizedScheduleText.time(mutedUntil)
-        }
-        if let nextNudge = scheduler.nextNudge {
-            return LocalizedScheduleText.time(nextNudge)
-        }
+        if let date = nextCardDate { return LocalizedScheduleText.time(date) }
         return "No plans"
     }
 
     private var nextCardDetail: String {
+        if !settings.hasActivatedSchedule { return "Complete setup in Preferences." }
+        if scheduler.hasFinishedTonight {
+            return scheduler.nextNudge == nil ? "No further reminders scheduled" : ""
+        }
         if scheduler.visualNudgePending {
             return "A persistent badge is waiting for you"
         }
@@ -319,38 +369,17 @@ struct TonightPopoverView: View {
 
     private var footerModeTitle: String {
         if settings.nudgeDelivery == .visual { return "Visual mode" }
-        return settings.progressiveMode ? "Progressive mode" : "Steady mode"
+        return settings.progressiveMode ? "Gradually firmer" : "Steady mode"
     }
 
     private var footerModeDetail: String {
         if settings.nudgeDelivery == .visual { return "Persistent badge" }
         return settings.progressiveMode
-            ? "Shy  →  Insistent  →  Zombie"
+            ? "\(settings.personality.capped(at: settings.maximumPersonality).title) to \(settings.maximumPersonality.title)"
             : settings.personality.title
     }
 
-    private var weeklySchedule: WeeklyBedtimeSchedule {
-        WeeklyBedtimeSchedule(
-            startSeconds: settings.startSeconds,
-            bedSeconds: settings.bedSeconds,
-            activeWeekdays: settings.activeWeekdays,
-            alternateScheduleEnabled: settings.alternateScheduleEnabled,
-            alternateWeekdays: settings.alternateScheduleWeekdays,
-            alternateStartSeconds: settings.alternateStartSeconds,
-            alternateBedSeconds: settings.alternateBedSeconds,
-            alternatePattern: settings.alternateSchedulePattern,
-            rotationAnchorDate: settings.rotationAnchorDate,
-            rotationPrimaryDays: settings.rotationPrimaryDays,
-            rotationAlternateDays: settings.rotationAlternateDays,
-            oneNightOverride: settings.tonightOverrideDate.map {
-                OneNightScheduleOverride(
-                    anchorDate: $0,
-                    startSeconds: settings.tonightOverrideStartSeconds,
-                    bedSeconds: settings.tonightOverrideBedSeconds
-                )
-            }
-        )
-    }
+    private var weeklySchedule: WeeklyBedtimeSchedule { settings.weeklySchedule }
 
     private var schedulePresentation: (name: String, window: BedtimeWindow)? {
         let calendar = Calendar.autoupdatingCurrent

@@ -33,6 +33,7 @@ plutil -lint \
   "Beddy Butler/Beddy Butler.entitlements" \
   "Beddy Butler/PrivacyInfo.xcprivacy" >/dev/null
 python3 Tools/validate_website.py
+python3 Tools/test_website_samples.py
 python3 Tools/validate_app_store_metadata.py
 python3 Tools/validate_ci_workflow.py
 python3 Tools/check_large_files.py

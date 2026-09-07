@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/favicon.png">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/styles.css?v=20260907-visual">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Beddy Butler">
   <meta property="og:description" content="Lovingly revamped, available now, and completely free. A gentler way to go to bed.">
@@ -197,16 +197,34 @@
       </div>
       <div class="persona-grid">
         <article class="persona-card shy">
-          <div class="persona-art"><img src="/assets/shy-480.webp" srcset="/assets/shy-480.webp 480w, /assets/shy-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="709" loading="lazy" alt="The Shy Butler yawning politely"></div>
+          <div class="persona-art" data-avatar="shy"><img src="/assets/shy-480.webp" srcset="/assets/shy-480.webp 480w, /assets/shy-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="709" loading="lazy" alt="The Shy Butler yawning politely"></div>
           <p class="persona-level">A gentle hint</p><h3>Shy</h3><p>Soft, courteous encouragement for those who only need a nudge.</p>
+          <div class="sample-player">
+            <button class="sample-toggle" type="button" id="sample-shy-toggle" aria-controls="sample-shy" aria-label="Hear Shy sample" hidden>▶ Hear sample</button>
+            <audio id="sample-shy" aria-label="Shy voice sample" controls preload="none" src="/assets/shy-sample.mp3"></audio>
+            <span class="sample-status" id="sample-shy-status" role="status" aria-live="polite"></span>
+            <button class="sample-retry" type="button" data-player="sample-shy" hidden>Try again</button>
+          </div>
         </article>
         <article class="persona-card insistent">
-          <div class="persona-art"><img src="/assets/insistent-480.webp" srcset="/assets/insistent-480.webp 480w, /assets/insistent-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="605" loading="lazy" alt="The Insistent Butler asking firmly"></div>
+          <div class="persona-art" data-avatar="insistent"><img src="/assets/insistent-480.webp" srcset="/assets/insistent-480.webp 480w, /assets/insistent-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="605" loading="lazy" alt="The Insistent Butler asking firmly"></div>
           <p class="persona-level">A firmer word</p><h3>Insistent</h3><p>Clearer direction when courtesy alone is not quite getting through.</p>
+          <div class="sample-player">
+            <button class="sample-toggle" type="button" id="sample-insistent-toggle" aria-controls="sample-insistent" aria-label="Hear Insistent sample" hidden>▶ Hear sample</button>
+            <audio id="sample-insistent" aria-label="Insistent voice sample" controls preload="none" src="/assets/insistent-sample.mp3"></audio>
+            <span class="sample-status" id="sample-insistent-status" role="status" aria-live="polite"></span>
+            <button class="sample-retry" type="button" data-player="sample-insistent" hidden>Try again</button>
+          </div>
         </article>
         <article class="persona-card zombie">
-          <div class="persona-art"><img src="/assets/zombie-480.webp" srcset="/assets/zombie-480.webp 480w, /assets/zombie-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="651" loading="lazy" alt="The Zombie Butler in theatrical undead character"></div>
+          <div class="persona-art" data-avatar="zombie"><img src="/assets/zombie-480.webp" srcset="/assets/zombie-480.webp 480w, /assets/zombie-960.webp 960w" sizes="(max-width: 720px) calc(100vw - 86px), 370px" width="480" height="651" loading="lazy" alt="The Zombie Butler in theatrical undead character"></div>
           <p class="persona-level">The final resort</p><h3>Zombie</h3><p>A chilling forewarning of how you might feel tomorrow, staying up far beyond any reasonable hour.</p>
+          <div class="sample-player">
+            <button class="sample-toggle" type="button" id="sample-zombie-toggle" aria-controls="sample-zombie" aria-label="Hear Zombie sample" hidden>▶ Hear sample</button>
+            <audio id="sample-zombie" aria-label="Zombie voice sample" controls preload="none" src="/assets/zombie-sample.mp3"></audio>
+            <span class="sample-status" id="sample-zombie-status" role="status" aria-live="polite"></span>
+            <button class="sample-retry" type="button" data-player="sample-zombie" hidden>Try again</button>
+          </div>
         </article>
       </div>
     </section>
@@ -266,5 +284,7 @@
     <nav aria-label="Footer navigation"><a href="/accessibility/">Accessibility</a><a href="/privacy/">Privacy</a><a href="/support/">Support</a><a href="/press/">Press</a></nav>
     <p>© 2015–2026 Nell Watson. Made for night owls with mornings ahead.</p>
   </footer>
+  <script src="/assets/samples.js" defer></script>
+  <script src="/assets/avatar-rig/website.js" defer></script>
 </body>
 </html>

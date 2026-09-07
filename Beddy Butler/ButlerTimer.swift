@@ -338,8 +338,13 @@ final class ButlerTimer: NSObject, ObservableObject {
     private(set) var timer: Timer?
 
     var canSnooze: Bool {
-        guard !settings.isMuted(at: now()) else { return false }
+        guard settings.hasActivatedSchedule, !settings.isMuted(at: now()) else { return false }
         return activeWindow(at: now()) != nil
+    }
+
+    var hasFinishedTonight: Bool {
+        settings.finishedWindowEnd == settings.mutedUntil && settings.finishedWindowEnd != nil
+            && settings.isMuted(at: now())
     }
 
     var visualNudgePending: Bool { settings.pendingVisualNudgeCount > 0 }
@@ -382,6 +387,14 @@ final class ButlerTimer: NSObject, ObservableObject {
     func recalculate() {
         timer?.invalidate()
         timer = nil
+
+        guard settings.hasActivatedSchedule else {
+            nextNudge = nil
+            scheduledWindow = nil
+            lastEvent = ""
+            NotificationCenter.default.post(name: .beddyScheduleDidChange, object: self)
+            return
+        }
 
         let currentDate = now()
         settings.clearExpiredMute(at: currentDate)
@@ -433,7 +446,9 @@ final class ButlerTimer: NSObject, ObservableObject {
             progressionWindowStart = nudge.window.start
         }
 
-        nextPersonality = progression.current
+        nextPersonality =
+            settings.progressiveMode
+            ? progression.current.capped(at: settings.maximumPersonality) : settings.personality
         nextNudge = nudge.fireDate
         scheduledWindow = nudge.window
 
@@ -456,7 +471,8 @@ final class ButlerTimer: NSObject, ObservableObject {
         NotificationCenter.default.post(name: .beddyScheduleDidChange, object: self)
     }
 
-    func snooze(minutes: Int = 30) {
+    func snooze(minutes: Int? = nil) {
+        guard settings.hasActivatedSchedule else { return }
         let currentDate = now()
         guard let window = activeWindow(at: currentDate) else {
             lastEvent = "Snooze is available during your bedtime window."
@@ -464,7 +480,8 @@ final class ButlerTimer: NSObject, ObservableObject {
             return
         }
 
-        let requestedResume = currentDate.addingTimeInterval(TimeInterval(max(minutes, 1) * 60))
+        let requestedResume = currentDate.addingTimeInterval(
+            TimeInterval(min(max(minutes ?? settings.snoozeMinutes, 1), 1440) * 60))
         if requestedResume < window.end {
             settings.mute(until: requestedResume)
             lastEvent = "Snoozed until \(LocalizedScheduleText.time(requestedResume))."
@@ -475,6 +492,7 @@ final class ButlerTimer: NSObject, ObservableObject {
     }
 
     func muteForCurrentWindow() {
+        guard settings.hasActivatedSchedule else { return }
         let currentDate = now()
         let calculator = ScheduleCalculator(calendar: .autoupdatingCurrent)
 
@@ -490,6 +508,20 @@ final class ButlerTimer: NSObject, ObservableObject {
 
         settings.mute(until: window.end)
         lastEvent = "Nudges are paused for this bedtime window."
+    }
+
+    func finishTonight() {
+        guard settings.hasActivatedSchedule else { return }
+        guard canSnooze, let window = activeWindow(at: now()) else { return }
+        settings.finishWindow(until: window.end)
+        visualNotifier?.clearVisualNudges()
+        lastEvent = "Good night."
+    }
+
+    func undoFinishTonight() {
+        if settings.undoFinishedWindow(at: now()) {
+            lastEvent = "Nudges resumed."
+        }
     }
 
     func resumeNudges() {
@@ -557,7 +589,10 @@ final class ButlerTimer: NSObject, ObservableObject {
     }
 
     func deliverNudge() {
-        let personality = settings.progressiveMode ? progression.current : settings.personality
+        guard settings.hasActivatedSchedule else { return }
+        let personality =
+            settings.progressiveMode
+            ? progression.current.capped(at: settings.maximumPersonality) : settings.personality
         var messages: [String] = []
 
         if settings.nudgeDelivery.includesSound {

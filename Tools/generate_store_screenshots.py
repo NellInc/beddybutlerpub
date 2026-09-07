@@ -398,7 +398,7 @@ add_window(
     1050,
     height=470,
     max_width=1160,
-    crop=(42, 760, 1360, 1215),
+    crop=(115, 390, 1355, 750),
 )
 add_window(fifth, args.preferences, 1410, 78, height=1615, max_width=1445)
 add_footer(fifth, "05", "Tonight, your way")

@@ -40,7 +40,7 @@ class PageParser(HTMLParser):
             self.resources.append(values["href"] or "")
             if values.get("rel") == "canonical":
                 self.canonical = values["href"]
-        if tag in {"script", "source"} and values.get("src"):
+        if tag in {"script", "source", "audio", "iframe"} and values.get("src"):
             self.resources.append(values["src"] or "")
         if tag == "source" and values.get("srcset"):
             self.resources.extend(
@@ -144,6 +144,12 @@ def main() -> int:
     if not pages:
         errors.append("No HTML pages found")
 
+    # Internal rendering documents still receive full local link/asset checks,
+    # but are not public landing pages with SEO and primary navigation.
+    internal_pages = { (SITE / name).resolve() for name in (
+        "assets/avatar-rig/embed.html", "experiments/limb-rig/index.html",
+        "experiments/limb-rig/all.html", "experiments/limb-rig/detail.html",
+    ) }
     parsed_pages: dict[Path, PageParser] = {}
     for page in pages:
         parser = PageParser()
@@ -158,13 +164,13 @@ def main() -> int:
             errors.append(f"{rel}: missing document language")
         if not parser.has_viewport:
             errors.append(f"{rel}: missing viewport metadata")
-        if page.name != "404.html" and not parser.has_description:
+        if page.resolve() not in internal_pages and page.name != "404.html" and not parser.has_description:
             errors.append(f"{rel}: missing meta description")
         if not parser.title.strip():
             errors.append(f"{rel}: missing title")
         if parser.h1_count != 1:
             errors.append(f"{rel}: expected exactly one h1, found {parser.h1_count}")
-        if page.name != "404.html":
+        if page.resolve() not in internal_pages and page.name != "404.html":
             site_relative = page.relative_to(SITE)
             if site_relative == Path("index.html"):
                 expected_canonical = "https://www.beddybutler.com/"
@@ -246,7 +252,7 @@ def main() -> int:
         "/support/",
     }
     for path, parser in parsed_pages.items():
-        if path.name == "404.html":
+        if path in internal_pages or path.name == "404.html":
             continue
         site_relative = path.relative_to(SITE)
         current_route = (

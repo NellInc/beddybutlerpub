@@ -233,7 +233,7 @@ final class LocalNotificationManager: NSObject, ObservableObject, VisualNotifica
             ),
             UNNotificationAction(
                 identifier: Self.snoozeAction,
-                title: "Snooze 30 Minutes"
+                title: "Snooze"
             ),
             UNNotificationAction(
                 identifier: Self.pauseAction,

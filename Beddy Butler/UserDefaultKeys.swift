@@ -86,6 +86,12 @@ enum UserDefaultKeys: String, CaseIterable {
     case pendingVisualNudgeCount
     case lastVisualNudgeAt
     case onboardingVersion
+    case hasActivatedSchedule
+    case snoozeMinutes
+    case maximumPersonality
+    case finishedWindowEnd
+    case finishedBadgeCount
+    case finishedBadgeDate
 }
 
 extension Notification.Name {
@@ -160,10 +166,15 @@ final class AppSettings: ObservableObject {
 
     @Published private(set) var startSeconds: Int
     @Published private(set) var bedSeconds: Int
+    @Published private(set) var snoozeMinutes: Int
+    @Published private(set) var maximumPersonality: ButlerPersonality
     @Published private(set) var frequencyMinutes: Double
     @Published private(set) var personality: ButlerPersonality
     @Published private(set) var progressiveMode: Bool
     @Published private(set) var mutedUntil: Date?
+    @Published private(set) var finishedWindowEnd: Date?
+    private var finishedBadgeCount: Int
+    private var finishedBadgeDate: Date?
     @Published private(set) var voiceVolume: Double
     @Published private(set) var nudgeDelivery: NudgeDelivery
     @Published private(set) var activeWeekdays: Set<Int>
@@ -183,6 +194,7 @@ final class AppSettings: ObservableObject {
     @Published private(set) var notificationAlertsEnabled: Bool
     @Published private(set) var pendingVisualNudgeCount: Int
     @Published private(set) var lastVisualNudgeAt: Date?
+    @Published private(set) var hasActivatedSchedule: Bool = false
     @Published private(set) var hasCompletedOnboarding: Bool
 
     private let defaults: UserDefaults
@@ -209,6 +221,11 @@ final class AppSettings: ObservableObject {
             fallback: Self.defaultBedSeconds
         )
 
+        let storedSnooze = defaults.integer(forKey: UserDefaultKeys.snoozeMinutes.rawValue)
+        snoozeMinutes = [10, 20, 30, 60].contains(storedSnooze) ? storedSnooze : 30
+        maximumPersonality =
+            defaults.string(forKey: UserDefaultKeys.maximumPersonality.rawValue)
+            .map { ButlerPersonality(storedValue: $0) } ?? .zombie
         let storedFrequency = defaults.object(forKey: UserDefaultKeys.frequency.rawValue) as? NSNumber
         frequencyMinutes = Self.clampFrequency(storedFrequency?.doubleValue ?? Self.defaultFrequencyMinutes)
 
@@ -216,6 +233,10 @@ final class AppSettings: ObservableObject {
         personality = ButlerPersonality(storedValue: storedPersonality)
         progressiveMode = defaults.object(forKey: UserDefaultKeys.progressive.rawValue) as? Bool ?? false
         mutedUntil = defaults.object(forKey: UserDefaultKeys.mutedUntil.rawValue) as? Date
+        finishedWindowEnd = defaults.object(forKey: UserDefaultKeys.finishedWindowEnd.rawValue) as? Date
+        finishedBadgeCount = Self.clampVisualNudgeCount(
+            defaults.integer(forKey: UserDefaultKeys.finishedBadgeCount.rawValue))
+        finishedBadgeDate = defaults.object(forKey: UserDefaultKeys.finishedBadgeDate.rawValue) as? Date
         let storedVolume = defaults.object(forKey: UserDefaultKeys.voiceVolume.rawValue) as? NSNumber
         voiceVolume = Self.clampVolume(storedVolume?.doubleValue ?? Self.defaultVoiceVolume)
         nudgeDelivery = NudgeDelivery(
@@ -294,7 +315,49 @@ final class AppSettings: ObservableObject {
             }
         }
 
+        // Replaying the welcome guide must not turn off an established routine.
+        let alreadyCompleted = hasCompletedOnboarding
+        hasActivatedSchedule =
+            (defaults.object(forKey: UserDefaultKeys.hasActivatedSchedule.rawValue) as? Bool)
+            ?? alreadyCompleted
+        defaults.set(hasActivatedSchedule, forKey: UserDefaultKeys.hasActivatedSchedule.rawValue)
         persistAll()
+    }
+
+    var weeklySchedule: WeeklyBedtimeSchedule {
+        WeeklyBedtimeSchedule(
+            startSeconds: startSeconds,
+            bedSeconds: bedSeconds,
+            activeWeekdays: activeWeekdays,
+            alternateScheduleEnabled: alternateScheduleEnabled,
+            alternateWeekdays: alternateScheduleWeekdays,
+            alternateStartSeconds: alternateStartSeconds,
+            alternateBedSeconds: alternateBedSeconds,
+            alternatePattern: alternateSchedulePattern,
+            rotationAnchorDate: rotationAnchorDate,
+            rotationPrimaryDays: rotationPrimaryDays,
+            rotationAlternateDays: rotationAlternateDays,
+            oneNightOverride: tonightOverrideDate.map {
+                OneNightScheduleOverride(
+                    anchorDate: $0,
+                    startSeconds: tonightOverrideStartSeconds,
+                    bedSeconds: tonightOverrideBedSeconds
+                )
+            }
+        )
+    }
+
+    func updateSnoozeMinutes(_ value: Int) {
+        guard [10, 20, 30, 60].contains(value), value != snoozeMinutes else { return }
+        snoozeMinutes = value
+        defaults.set(value, forKey: UserDefaultKeys.snoozeMinutes.rawValue)
+        announceChange()
+    }
+
+    func updateMaximumPersonality(_ value: ButlerPersonality) {
+        maximumPersonality = value
+        defaults.set(value.rawValue, forKey: UserDefaultKeys.maximumPersonality.rawValue)
+        announceChange()
     }
 
     func updateStartSeconds(_ value: Int) {
@@ -560,6 +623,8 @@ final class AppSettings: ObservableObject {
     func completeOnboarding() {
         guard !hasCompletedOnboarding else { return }
         hasCompletedOnboarding = true
+        hasActivatedSchedule = true
+        defaults.set(true, forKey: UserDefaultKeys.hasActivatedSchedule.rawValue)
         defaults.set(
             Self.currentOnboardingVersion,
             forKey: UserDefaultKeys.onboardingVersion.rawValue
@@ -577,10 +642,13 @@ final class AppSettings: ObservableObject {
     func restoreRecommendedDefaults(calendar: Calendar = .autoupdatingCurrent) {
         startSeconds = Self.defaultStartSeconds
         bedSeconds = Self.defaultBedSeconds
+        snoozeMinutes = 30
+        maximumPersonality = .zombie
         frequencyMinutes = Self.defaultFrequencyMinutes
         personality = .shy
         progressiveMode = false
         mutedUntil = nil
+        clearFinishedWindow()
         voiceVolume = Self.defaultVoiceVolume
         nudgeDelivery = .sound
         activeWeekdays = Set(1...7)
@@ -607,7 +675,40 @@ final class AppSettings: ObservableObject {
         announceChange()
     }
 
+    func finishWindow(until date: Date) {
+        finishedBadgeCount = pendingVisualNudgeCount
+        finishedBadgeDate = lastVisualNudgeAt
+        finishedWindowEnd = date
+        pendingVisualNudgeCount = 0
+        lastVisualNudgeAt = nil
+        mutedUntil = date
+        defaults.set(date, forKey: UserDefaultKeys.mutedUntil.rawValue)
+        defaults.set(true, forKey: UserDefaultKeys.isMuted.rawValue)
+        persistAll()
+        announceChange()
+    }
+
+    @discardableResult
+    func undoFinishedWindow(at date: Date = Date()) -> Bool {
+        guard let end = finishedWindowEnd, end == mutedUntil, date < end else { return false }
+        pendingVisualNudgeCount = Self.clampVisualNudgeCount(pendingVisualNudgeCount + finishedBadgeCount)
+        lastVisualNudgeAt = [lastVisualNudgeAt, finishedBadgeDate].compactMap { $0 }.max()
+        persistAll()
+        resumeNudges()
+        return true
+    }
+
+    private func clearFinishedWindow() {
+        finishedWindowEnd = nil
+        finishedBadgeCount = 0
+        finishedBadgeDate = nil
+        for key in [UserDefaultKeys.finishedWindowEnd, .finishedBadgeCount, .finishedBadgeDate] {
+            defaults.removeObject(forKey: key.rawValue)
+        }
+    }
+
     func mute(until date: Date) {
+        clearFinishedWindow()
         mutedUntil = date
         defaults.set(date, forKey: UserDefaultKeys.mutedUntil.rawValue)
         defaults.set(true, forKey: UserDefaultKeys.isMuted.rawValue)
@@ -617,6 +718,7 @@ final class AppSettings: ObservableObject {
     func resumeNudges() {
         guard mutedUntil != nil || defaults.bool(forKey: UserDefaultKeys.isMuted.rawValue) else { return }
         mutedUntil = nil
+        clearFinishedWindow()
         defaults.removeObject(forKey: UserDefaultKeys.mutedUntil.rawValue)
         defaults.set(false, forKey: UserDefaultKeys.isMuted.rawValue)
         announceChange()
@@ -630,11 +732,17 @@ final class AppSettings: ObservableObject {
     func clearExpiredMute(at date: Date = Date()) {
         guard let mutedUntil, mutedUntil <= date else { return }
         self.mutedUntil = nil
+        clearFinishedWindow()
         defaults.removeObject(forKey: UserDefaultKeys.mutedUntil.rawValue)
         defaults.set(false, forKey: UserDefaultKeys.isMuted.rawValue)
     }
 
     private func persistAll() {
+        defaults.set(finishedWindowEnd, forKey: UserDefaultKeys.finishedWindowEnd.rawValue)
+        defaults.set(finishedBadgeCount, forKey: UserDefaultKeys.finishedBadgeCount.rawValue)
+        defaults.set(finishedBadgeDate, forKey: UserDefaultKeys.finishedBadgeDate.rawValue)
+        defaults.set(snoozeMinutes, forKey: UserDefaultKeys.snoozeMinutes.rawValue)
+        defaults.set(maximumPersonality.rawValue, forKey: UserDefaultKeys.maximumPersonality.rawValue)
         defaults.set(Double(startSeconds), forKey: UserDefaultKeys.startTimeValue.rawValue)
         defaults.set(Double(bedSeconds), forKey: UserDefaultKeys.bedTimeValue.rawValue)
         defaults.set(frequencyMinutes, forKey: UserDefaultKeys.frequency.rawValue)

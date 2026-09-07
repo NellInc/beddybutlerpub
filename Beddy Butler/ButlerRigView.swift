@@ -7,10 +7,7 @@ enum ButlerRigContentMode {
     case upperBody
 }
 
-/// Renders each original character as one intact sprite and gives it
-/// personality-specific choreography using only translation, rotation, and
-/// uniform scale. Keeping the artwork rigid avoids distortions around the face,
-/// hands, and clothing.
+/// Native playback of the approved articulated mesh, with original artwork at rest.
 struct ButlerRiggedView: NSViewRepresentable {
     let personality: ButlerPersonality
     let motionEnabled: Bool
@@ -202,6 +199,7 @@ final class ButlerMotionScene: SKScene {
     static let maximumTextureHeight = 384
 
     private var characterNode: SKSpriteNode?
+    private var articulatedMotion: ButlerArticulatedMotion?
     private var personality: ButlerPersonality?
     private var motionEnabled = true
     private var intensity: Float = 1
@@ -279,12 +277,16 @@ final class ButlerMotionScene: SKScene {
     private func replaceCharacter(with personality: ButlerPersonality) {
         guard let image = NSImage(named: personality.rigAssetName) else { return }
 
+        articulatedMotion = ButlerArticulatedMotion.load(personality)
         let (texture, aspect) = makeDisplayTexture(from: image)
         texture.filteringMode = .linear
         let newNode = SKSpriteNode(texture: texture)
         newNode.name = "animated-\(personality.rawValue)-butler"
         newNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         newNode.blendMode = .alpha
+        // The baked grid already supplies the required detail. SpriteKit's
+        // recursive subdivision overflows its renderer with this dense mesh.
+        newNode.subdivisionLevels = 0
 
         artworkAspect = aspect
 
@@ -398,6 +400,16 @@ final class ButlerMotionScene: SKScene {
 
     private func applyCurrentPose() {
         guard let characterNode, let personality else { return }
+        if let articulatedMotion {
+            characterNode.position = neutralPosition
+            characterNode.zRotation = 0
+            characterNode.setScale(1)
+            characterNode.warpGeometry =
+                motionEnabled && intensity > 0
+                ? articulatedMotion.geometry(at: elapsedTime, intensity: intensity) : nil
+            return
+        }
+        characterNode.warpGeometry = nil
         let duration = ButlerRigidMotion.cycleDuration(for: personality)
         let phase = Float((elapsedTime / duration).truncatingRemainder(dividingBy: 1))
         let pose =
@@ -508,5 +520,69 @@ enum ButlerRigidMotion {
 
     private static func radians(_ degrees: Float) -> Float {
         degrees * .pi / 180
+    }
+}
+
+/// Sampled directly from the shared web skeleton. Float data uses little-endian,
+/// normalized bottom-up coordinates. Interpolation runs at the display cadence.
+struct ButlerArticulatedMotion {
+    let columns: Int
+    let rows: Int
+    let frames: Int
+    let duration: Double
+    let positions: [SIMD2<Float>]
+    var vertexCount: Int { (columns + 1) * (rows + 1) }
+
+    @MainActor private static var cache: [ButlerPersonality: ButlerArticulatedMotion] = [:]
+
+    @MainActor static func load(_ personality: ButlerPersonality) -> Self? {
+        if let cached = cache[personality] { return cached }
+        guard let data = NSDataAsset(name: personality.rawValue + "Motion")?.data,
+            let motion = Self(data: data)
+        else { return nil }
+        cache[personality] = motion
+        return motion
+    }
+
+    init?(data: Data) {
+        guard data.count >= 16, data.count % 4 == 0 else { return nil }
+        let values: [Float] = data.withUnsafeBytes { bytes in
+            stride(from: 0, to: data.count, by: 4).map {
+                Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: $0, as: UInt32.self)))
+            }
+        }
+        guard values.allSatisfy({ $0.isFinite }),
+            (1...128).contains(values[0]), (1...160).contains(values[1]),
+            (2...240).contains(values[2]), (1...60).contains(values[3]),
+            values[0].rounded() == values[0], values[1].rounded() == values[1],
+            values[2].rounded() == values[2]
+        else { return nil }
+        columns = Int(values[0])
+        rows = Int(values[1])
+        frames = Int(values[2])
+        duration = Double(values[3])
+        guard values.count == 4 + (columns + 1) * (rows + 1) * frames * 2 else { return nil }
+        positions = stride(from: 4, to: values.count, by: 2).map { SIMD2(values[$0], values[$0 + 1]) }
+    }
+
+    func geometry(at time: Double, intensity: Float) -> SKWarpGeometryGrid {
+        let phase = (max(time.isFinite ? time : 0, 0) / duration).truncatingRemainder(dividingBy: 1) * Double(frames)
+        let first = Int(phase)
+        let next = (first + 1) % frames
+        let blend = Float(phase - Double(first))
+        let amount = min(max(intensity.isFinite ? intensity : 0, 0), 1)
+        var destination = [SIMD2<Float>]()
+        destination.reserveCapacity(vertexCount)
+        var source = [SIMD2<Float>]()
+        source.reserveCapacity(vertexCount)
+        for i in 0..<vertexCount {
+            let rest = SIMD2(Float(i % (columns + 1)) / Float(columns), Float(i / (columns + 1)) / Float(rows))
+            source.append(rest)
+            let a = positions[first * vertexCount + i]
+            let b = positions[next * vertexCount + i]
+            destination.append(rest + (a + (b - a) * blend - rest) * amount)
+        }
+        return SKWarpGeometryGrid(
+            columns: columns, rows: rows, sourcePositions: source, destinationPositions: destination)
     }
 }

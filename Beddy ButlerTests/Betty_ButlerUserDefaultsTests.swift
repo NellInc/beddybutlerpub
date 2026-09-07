@@ -14,6 +14,75 @@ final class BeddyButlerUserDefaultsTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishUndoSurvivesRelaunchAndRestoresBadge() {
+        let defaults = freshDefaults()
+        let settings = AppSettings(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        settings.recordVisualNudge(at: now)
+        settings.recordVisualNudge(at: now)
+        settings.finishWindow(until: now.addingTimeInterval(3600))
+        XCTAssertEqual(settings.pendingVisualNudgeCount, 0)
+        let restored = AppSettings(defaults: defaults)
+        XCTAssertEqual(restored.finishedWindowEnd, now.addingTimeInterval(3600))
+        XCTAssertTrue(restored.undoFinishedWindow(at: now))
+        XCTAssertNil(restored.mutedUntil)
+        XCTAssertNil(restored.finishedWindowEnd)
+        XCTAssertEqual(restored.pendingVisualNudgeCount, 2)
+        XCTAssertEqual(restored.lastVisualNudgeAt, now)
+        XCTAssertFalse(restored.undoFinishedWindow(at: now))
+        XCTAssertEqual(AppSettings(defaults: defaults).pendingVisualNudgeCount, 2)
+    }
+
+    @MainActor
+    func testFinishUndoExpiresAndPauseSupersedesIt() {
+        let settings = AppSettings(defaults: freshDefaults())
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        settings.finishWindow(until: now)
+        XCTAssertFalse(settings.undoFinishedWindow(at: now))
+        settings.clearExpiredMute(at: now)
+        XCTAssertNil(settings.finishedWindowEnd)
+        settings.finishWindow(until: now.addingTimeInterval(3600))
+        settings.mute(until: now.addingTimeInterval(600))
+        XCTAssertFalse(settings.undoFinishedWindow(at: now))
+        XCTAssertNil(settings.finishedWindowEnd)
+    }
+
+    func testDateLabelDistinguishesTodayFromFutureAcrossMidnight() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = Date(timeIntervalSince1970: 0)
+        XCTAssertEqual(LocalizedScheduleText.dayLabel(today, relativeTo: today, calendar: calendar), "Today")
+        let future = today.addingTimeInterval(86400)
+        let label = LocalizedScheduleText.dayLabel(
+            future, relativeTo: today, calendar: calendar, locale: Locale(identifier: "en_GB"))
+        XCTAssertTrue(label.contains("Friday"))
+        XCTAssertFalse(label.contains("Today"))
+    }
+
+    @MainActor
+    func testEverydayControlsPersistValidateAndReset() {
+        let defaults = freshDefaults()
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.snoozeMinutes, 30)
+        XCTAssertEqual(settings.maximumPersonality, .zombie)
+        settings.updateSnoozeMinutes(20)
+        settings.updateMaximumPersonality(.insistent)
+        settings.updateSnoozeMinutes(-1)
+        let restored = AppSettings(defaults: defaults)
+        XCTAssertEqual(restored.snoozeMinutes, 20)
+        XCTAssertEqual(restored.maximumPersonality, .insistent)
+        restored.restoreRecommendedDefaults()
+        XCTAssertEqual(restored.snoozeMinutes, 30)
+        XCTAssertEqual(restored.maximumPersonality, .zombie)
+    }
+
+    func testPersonalityCeilingNeverEscalatesPastPreference() {
+        XCTAssertEqual(ButlerPersonality.zombie.capped(at: .insistent), .insistent)
+        XCTAssertEqual(ButlerPersonality.shy.capped(at: .zombie), .shy)
+        XCTAssertEqual(ButlerPersonality.insistent.capped(at: .shy), .shy)
+    }
+
+    @MainActor
     func testDefaultsUseSensibleFirstLaunchValues() {
         let defaults = freshDefaults()
         let settings = AppSettings(defaults: defaults)
@@ -38,6 +107,8 @@ final class BeddyButlerUserDefaultsTests: XCTestCase {
         XCTAssertEqual(settings.pendingVisualNudgeCount, 0)
         XCTAssertNil(settings.lastVisualNudgeAt)
         XCTAssertFalse(settings.hasCompletedOnboarding)
+        XCTAssertFalse(settings.hasActivatedSchedule)
+        XCTAssertFalse(AppSettings(defaults: defaults).hasActivatedSchedule)
         XCTAssertFalse(AppSettings(defaults: defaults).hasCompletedOnboarding)
     }
 
@@ -56,6 +127,8 @@ final class BeddyButlerUserDefaultsTests: XCTestCase {
         XCTAssertEqual(settings.personality, .insistent)
         XCTAssertEqual(settings.frequencyMinutes, 14)
         XCTAssertTrue(settings.hasCompletedOnboarding)
+        XCTAssertTrue(settings.hasActivatedSchedule)
+        XCTAssertTrue(AppSettings(defaults: defaults).hasActivatedSchedule)
     }
 
     @MainActor
@@ -286,6 +359,8 @@ final class BeddyButlerUserDefaultsTests: XCTestCase {
         settings.replayOnboarding()
 
         XCTAssertFalse(settings.hasCompletedOnboarding)
+        XCTAssertTrue(settings.hasActivatedSchedule)
+        XCTAssertTrue(AppSettings(defaults: defaults).hasActivatedSchedule)
         XCTAssertEqual(settings.personality, .zombie)
         XCTAssertEqual(settings.frequencyMinutes, 19)
         XCTAssertFalse(AppSettings(defaults: defaults).hasCompletedOnboarding)

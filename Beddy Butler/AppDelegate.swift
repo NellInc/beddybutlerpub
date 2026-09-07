@@ -174,6 +174,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             }
         }
 
+        #if DEBUG
+            if let directory = environment["BEDDY_MENU_PROOF_DIR"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.captureMenuProof(directory)
+                }
+            }
+        #endif
+
         if let outputDirectory = environment["BEDDY_BUTLER_CAPTURE_UI_DIR"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                 self?.captureUI(to: URL(fileURLWithPath: outputDirectory, isDirectory: true))
@@ -209,14 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             button.setAccessibilityHelp("Open the Tonight panel. Right-click for more commands.")
             button.target = self
             button.action = #selector(toggleStatusPanel)
-            button.sendAction(on: [.leftMouseUp])
-
-            let secondaryClick = NSClickGestureRecognizer(
-                target: self,
-                action: #selector(showStatusMenuFromSecondaryClick)
-            )
-            secondaryClick.buttonMask = 0x2
-            button.addGestureRecognizer(secondaryClick)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityCustomActions([
                 NSAccessibilityCustomAction(
                     name: "Show Commands",
@@ -227,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
 
         let menu = NSMenu(title: "Beddy Butler")
+        menu.autoenablesItems = false
         menu.delegate = self
 
         menu.addItem(makeItem("Open Tonight Panel", action: #selector(openTonightPanel)))
@@ -283,18 +285,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc private func toggleStatusPanel(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        if statusPopover.isShown {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            statusPopover.performClose(nil)
+            showStatusMenu(relativeTo: button)
+        } else if statusPopover.isShown {
             statusPopover.performClose(nil)
         } else {
             refreshMenuState()
             showStatusPopover(relativeTo: button)
         }
-    }
-
-    @objc private func showStatusMenuFromSecondaryClick(_ recognizer: NSClickGestureRecognizer) {
-        guard recognizer.state == .ended, let button = statusItem?.button else { return }
-        statusPopover.performClose(nil)
-        showStatusMenu(relativeTo: button)
     }
 
     @objc private func showStatusMenuAccessibilityAction(
@@ -325,6 +324,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         positionStatusPopoverClearOfScreenObstructions()
     }
+
+    #if DEBUG
+        // Opt-in local acceptance capture; never reads or changes the user's real defaults.
+        private func captureMenuProof(_ directory: String) {
+            guard
+                ProcessInfo.processInfo.environment["BEDDY_BUTLER_DEFAULTS_SUITE"]?.hasPrefix("BeddyButler.MenuProof.")
+                    == true,
+                let menu = statusMenu, let button = statusItem?.button
+            else { return }
+            let output = URL(fileURLWithPath: directory)
+            try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            NSApp.activate(ignoringOtherApps: true)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            for state in ["setup", "active", "paused"] {
+                if state == "active" { settings.completeOnboarding() }
+                if state == "paused" { scheduler.muteForCurrentWindow() }
+                for _ in 0..<3 {
+                    let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
+                        MainActor.assumeIsolated {
+                            guard let menu = self.statusMenu else { return }
+                            let items = menu.items.filter { !$0.isSeparatorItem && !$0.isHidden }
+                                .map { ["title": $0.title, "enabled": $0.isEnabled] as [String: Any] }
+                            if let data = try? JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted])
+                            {
+                                try? data.write(to: output.appendingPathComponent("menu-\(state).json"))
+                            }
+                            if let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID)
+                                as? [[String: Any]],
+                                let window = windows.first(where: {
+                                    ($0[kCGWindowOwnerPID as String] as? Int)
+                                        == Int(ProcessInfo.processInfo.processIdentifier)
+                                        && ($0[kCGWindowLayer as String] as? Int ?? 0) > 0
+                                }), let id = window[kCGWindowNumber as String] as? Int
+                            {
+                                let capture = Process()
+                                capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                                capture.arguments = [
+                                    "-x", "-l", String(id), output.appendingPathComponent("menu-\(state).png").path,
+                                ]
+                                try? capture.run()
+                                capture.waitUntilExit()
+                            }
+                            menu.cancelTracking()
+                        }
+                    }
+                    RunLoop.main.add(timer, forMode: .common)
+                    showStatusMenu(relativeTo: button)
+                    timer.invalidate()
+                    if let data = try? Data(contentsOf: output.appendingPathComponent("menu-\(state).png")),
+                        let bitmap = NSBitmapImageRep(data: data),
+                        (bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.1
+                    {
+                        break
+                    }
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                }
+            }
+            NSApp.terminate(nil)
+        }
+    #endif
 
     private func showStatusMenu(relativeTo button: NSStatusBarButton) {
         refreshMenuState()
@@ -374,9 +433,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                 : "\(scheduler.pendingVisualNudgeCount) visual bedtime nudges waiting"
         } else if let mutedUntil = settings.mutedUntil, settings.isMuted() {
             nextNudgeItem?.title =
-                "Paused until \(LocalizedScheduleText.time(mutedUntil))"
+                "Paused until \(LocalizedScheduleText.dayAndTime(mutedUntil))"
         } else if let nextNudge = scheduler.nextNudge {
-            nextNudgeItem?.title = "Next nudge: \(LocalizedScheduleText.time(nextNudge))"
+            nextNudgeItem?.title = "Next nudge: \(LocalizedScheduleText.dayAndTime(nextNudge))"
         } else {
             nextNudgeItem?.title = "Next nudge: none scheduled"
         }
@@ -390,10 +449,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             previewItem?.title = "Preview Sound + Badge"
         }
         acknowledgeVisualItem?.isHidden = !scheduler.visualNudgePending
+        snoozeItem?.title = "Snooze \(settings.snoozeMinutes) Minutes"
+        snoozeItem?.toolTip = "Stay quiet for \(settings.snoozeMinutes) minutes, or until bedtime if sooner"
         snoozeItem?.isHidden = settings.isMuted()
         snoozeItem?.isEnabled = scheduler.canSnooze
         muteItem?.title = settings.isMuted() ? "Resume Nudges" : "Pause for Tonight"
         muteItem?.state = settings.isMuted() ? .on : .off
+        muteItem?.isEnabled = settings.hasActivatedSchedule
 
         if let button = statusItem?.button {
             button.image = MenuBarIcon.make(pendingVisualNudge: scheduler.visualNudgePending)
@@ -407,10 +469,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
                     "Beddy Butler, \(pendingVisualDescription). Open the menu to acknowledge."
             } else if let mutedUntil = settings.mutedUntil, settings.isMuted() {
                 button.toolTip =
-                    "Beddy Butler is paused until \(LocalizedScheduleText.time(mutedUntil))"
+                    "Beddy Butler is paused until \(LocalizedScheduleText.dayAndTime(mutedUntil))"
             } else if let nextNudge = scheduler.nextNudge {
                 button.toolTip =
-                    "Beddy Butler, next \(scheduler.nextPersonality.title) nudge at \(LocalizedScheduleText.time(nextNudge))"
+                    "Beddy Butler, next \(scheduler.nextPersonality.title) nudge at \(LocalizedScheduleText.dayAndTime(nextNudge))"
             } else {
                 button.toolTip = "Beddy Butler, no nudge scheduled"
             }
@@ -609,9 +671,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             )
             try writeSnapshot(
                 of: makeTonightPopoverView().fixedSize(horizontal: false, vertical: true),
-                proposedWidth: 390,
+                proposedWidth: 420,
                 to: directory.appendingPathComponent("tonight-popover.png")
             )
+            if let contentView = preferencesWindowController.window?.contentView {
+                contentView.layoutSubtreeIfNeeded()
+                if let bitmap = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) {
+                    contentView.cacheDisplay(in: contentView.bounds, to: bitmap)
+                    if NativeSnapshotValidation.hasVisibleContent(bitmap),
+                        let data = bitmap.representation(using: .png, properties: [:])
+                    {
+                        try data.write(to: directory.appendingPathComponent("preferences-window.png"), options: .atomic)
+                    }
+                }
+            }
             print("Captured native UI to \(directory.path)")
         } catch {
             fputs("Beddy Butler UI capture failed: \(error)\n", stderr)

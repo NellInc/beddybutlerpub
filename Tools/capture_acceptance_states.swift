@@ -34,7 +34,41 @@ guard FileManager.default.isExecutableFile(atPath: executable.path) else {
 }
 
 let now = Date()
+let calendar = Calendar.autoupdatingCurrent
+let components = calendar.dateComponents([.hour, .minute, .second], from: now)
+let wallSeconds = (components.hour ?? 0) * 3600 + (components.minute ?? 0) * 60 + (components.second ?? 0)
 let states = [
+    CaptureState(
+        name: "finished-tonight",
+        values: [
+            "onboardingVersion": 1,
+            "nudgeDelivery": "both",
+            "mutedUntil": now.addingTimeInterval(3600),
+            "finishedWindowEnd": now.addingTimeInterval(3600),
+        ]
+    ),
+    CaptureState(
+        name: "active-evening",
+        values: [
+            "onboardingVersion": 1,
+            "startTimeValue": (wallSeconds + 86400 - 300) % 86400,
+            "bedTimeValue": (wallSeconds + 3600) % 86400,
+            "nudgeDelivery": "both",
+            "progressive": true,
+            "maximumPersonality": "insistent",
+            "snoozeMinutes": 20,
+        ]
+    ),
+    CaptureState(
+        name: "paused-pending",
+        values: [
+            "onboardingVersion": 1,
+            "nudgeDelivery": "visual",
+            "mutedUntil": now.addingTimeInterval(3600),
+            "pendingVisualNudgeCount": 2,
+            "lastVisualNudgeAt": now,
+        ]
+    ),
     CaptureState(
         name: "welcome",
         values: [
@@ -394,7 +428,9 @@ do {
         to: outputDirectory.appendingPathComponent("manifest.json"),
         options: .atomic
     )
-    print("Acceptance-state captures passed: \(states.count) states, \(states.count * 2) images")
+    print(
+        "SwiftUI state captures completed (native controls require separate window screenshots): \(states.count) states, \(states.count * 2) images"
+    )
 } catch {
     fputs("Acceptance-state capture failed: \(error.localizedDescription)\n", stderr)
     exit(1)

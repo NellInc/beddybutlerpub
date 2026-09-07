@@ -1,0 +1,23 @@
+[
+  {
+    "personality": "shy",
+    "source": "Beddy Butler/Sounds/20151210 - Nell Watson - Shy.01.mp3",
+    "asset": "assets/shy-sample.mp3",
+    "sha256": "9b8c575c348afac623a82cc5e03bb09beb9c64c1264be1967052d5b102495530",
+    "transcript_status": "pending human review"
+  },
+  {
+    "personality": "insistent",
+    "source": "Beddy Butler/Sounds/20151210 - Nell Watson - Insistent.01.mp3",
+    "asset": "assets/insistent-sample.mp3",
+    "sha256": "85d69242629d7c1c0b90859b8cc91a42340b8785e13863833ab008461f3a29b3",
+    "transcript_status": "pending human review"
+  },
+  {
+    "personality": "zombie",
+    "source": "Beddy Butler/Sounds/20151210 - Nell Watson - Zombie.01.mp3",
+    "asset": "assets/zombie-sample.mp3",
+    "sha256": "931994c4705dc5ab53708bf48fdf11bfd7131ddb1efa8dc58b95069abebf69d4",
+    "transcript_status": "pending human review"
+  }
+]

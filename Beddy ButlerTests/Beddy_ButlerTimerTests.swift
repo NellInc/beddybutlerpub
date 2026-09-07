@@ -28,6 +28,39 @@ private final class RecordingVisualNotifier: VisualNotificationDelivering {
 }
 
 final class BeddyButlerTimerTests: XCTestCase {
+    @MainActor
+    func testFreshInstallWaitsForStartBeforeSchedulingOrDelivering() throws {
+        let suite = "BeddyButler.SetupTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let audio = RecordingAudioPlayer()
+        let scheduler = ButlerTimer(settings: settings, audioPlayer: audio)
+        defer { scheduler.timer?.invalidate() }
+        XCTAssertFalse(settings.hasCompletedOnboarding)
+        XCTAssertNil(scheduler.nextNudge)
+        XCTAssertNil(scheduler.timer)
+        settings.updateStartSeconds(21 * 3600)
+        XCTAssertFalse(AppSettings(defaults: defaults).hasActivatedSchedule)
+        XCTAssertNil(scheduler.nextNudge)
+        XCTAssertFalse(scheduler.canSnooze)
+        scheduler.snooze()
+        scheduler.muteForCurrentWindow()
+        scheduler.finishTonight()
+        XCTAssertNil(settings.mutedUntil)
+        scheduler.handleTimerFire()
+        scheduler.deliverNudge()
+        XCTAssertEqual(audio.playCount, 0)
+        settings.completeOnboarding()
+        XCTAssertFalse(scheduler.lastEvent.contains("Awaiting setup"))
+        XCTAssertNotNil(scheduler.nextNudge)
+        XCTAssertNotNil(scheduler.timer)
+        settings.replayOnboarding()
+        XCTAssertNotNil(scheduler.nextNudge)
+        XCTAssertNotNil(scheduler.timer)
+        XCTAssertTrue(AppSettings(defaults: defaults).hasActivatedSchedule)
+    }
+
     private func calendar(timeZone identifier: String = "Europe/London") -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         guard let timeZone = TimeZone(identifier: identifier) else {
@@ -429,10 +462,41 @@ final class BeddyButlerTimerTests: XCTestCase {
     }
 
     @MainActor
+    func testRememberedSnoozeAndFinishTonightPreserveSchedule() throws {
+        let suite = "BeddyButler.EverydayTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
+        settings.updateStartSeconds(21 * 3600)
+        settings.updateBedSeconds(23 * 3600)
+        settings.updateSnoozeMinutes(20)
+        let now = date(2026, 7, 21, 22, calendar: .autoupdatingCurrent)
+        let scheduler = ButlerTimer(
+            settings: settings, audioPlayer: AudioPlayer(), now: { now },
+            intervalProvider: { $0.lowerBound }, escalationProvider: { 2 })
+        defer { scheduler.timer?.invalidate() }
+        scheduler.snooze()
+        XCTAssertEqual(settings.mutedUntil, now.addingTimeInterval(20 * 60))
+        scheduler.resumeNudges()
+        scheduler.finishTonight()
+        XCTAssertEqual(settings.mutedUntil, now.addingTimeInterval(60 * 60))
+        XCTAssertEqual(settings.startSeconds, 21 * 3600)
+        XCTAssertEqual(settings.bedSeconds, 23 * 3600)
+        XCTAssertFalse(scheduler.visualNudgePending)
+        XCTAssertTrue(scheduler.hasFinishedTonight)
+        XCTAssertGreaterThan(try XCTUnwrap(scheduler.nextNudge), try XCTUnwrap(settings.finishedWindowEnd))
+        scheduler.undoFinishTonight()
+        XCTAssertFalse(scheduler.hasFinishedTonight)
+        XCTAssertNil(settings.mutedUntil)
+    }
+
+    @MainActor
     func testVisualDeliveryUsesPersistentBadgeWithoutPlayingAudio() throws {
         let suiteName = "BeddyButlerVisualTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateNudgeDelivery(.visual)
         let audioPlayer = RecordingAudioPlayer()
         settings.updateNotificationAlertsEnabled(true)
@@ -468,6 +532,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let suiteName = "BeddyButlerBothTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateNudgeDelivery(.both)
         let audioPlayer = RecordingAudioPlayer()
         let scheduler = ButlerTimer(settings: settings, audioPlayer: audioPlayer)
@@ -492,6 +557,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         let currentCalendar = Calendar.autoupdatingCurrent
@@ -522,6 +588,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         let currentCalendar = Calendar.autoupdatingCurrent
@@ -555,6 +622,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         settings.updateFrequencyMinutes(10)
@@ -587,6 +655,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         settings.updateFrequencyMinutes(10)
@@ -620,6 +689,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
 
@@ -650,6 +720,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         settings.updateFrequencyMinutes(10)
@@ -689,6 +760,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         let currentCalendar = Calendar.autoupdatingCurrent
@@ -720,6 +792,7 @@ final class BeddyButlerTimerTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         let settings = AppSettings(defaults: defaults)
+        settings.completeOnboarding()
         settings.updateStartSeconds(21 * 3_600)
         settings.updateBedSeconds(23 * 3_600)
         settings.updateFrequencyMinutes(10)

@@ -32,30 +32,6 @@ struct WindowMaterialView: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-private struct BeddyStars: View {
-    private let positions: [(CGFloat, CGFloat, CGFloat)] = [
-        (0.08, 0.12, 2.2), (0.29, 0.07, 1.4), (0.48, 0.24, 1.8),
-        (0.69, 0.11, 1.5), (0.91, 0.29, 2.0), (0.17, 0.72, 1.4),
-        (0.82, 0.64, 1.2), (0.38, 0.48, 1.0),
-    ]
-
-    var body: some View {
-        GeometryReader { geometry in
-            ForEach(Array(positions.enumerated()), id: \.offset) { _, star in
-                Circle()
-                    .fill(BeddyPalette.blueBright.opacity(0.72))
-                    .frame(width: star.2, height: star.2)
-                    .shadow(color: BeddyPalette.blue.opacity(0.9), radius: 4)
-                    .position(
-                        x: geometry.size.width * star.0,
-                        y: geometry.size.height * star.1
-                    )
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 struct BeddyBackdrop: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -92,7 +68,6 @@ struct BeddyBackdrop: View {
                     endRadius: 620
                 )
 
-                BeddyStars()
             }
         }
         .ignoresSafeArea()

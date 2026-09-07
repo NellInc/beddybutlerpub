@@ -31,6 +31,11 @@ enum ButlerPersonality: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
+    func capped(at maximum: ButlerPersonality) -> ButlerPersonality {
+        let order: [ButlerPersonality] = [.shy, .insistent, .zombie]
+        return order[min(order.firstIndex(of: self) ?? 0, order.firstIndex(of: maximum) ?? 0)]
+    }
+
     var escalated: ButlerPersonality {
         switch self {
         case .shy: .insistent
