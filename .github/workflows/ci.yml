@@ -89,7 +89,7 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/BeddyButlerEvidence/release-build.txt"
           python3 Tools/validate_app_bundle.py \
             "$RUNNER_TEMP/BeddyButlerRelease/Build/Products/Release/Beddy Butler.app" \
-            --version 2.0.2 \
+            --version 2.0.3 \
             --build 613 \
             --require-universal \
             2>&1 | tee "$RUNNER_TEMP/BeddyButlerEvidence/bundle-validation.txt"

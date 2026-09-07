@@ -41,7 +41,7 @@ Run this against every finished application bundle:
 ```sh
 python3 Tools/validate_app_bundle.py \
   "/path/to/Beddy Butler.app" \
-  --version 2.0.2 \
+  --version 2.0.3 \
   --build 613 \
   --require-universal
 ```
